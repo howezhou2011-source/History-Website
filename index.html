@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>IGCSE History Study Hub | Germany & USA</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 IGCSE History Study Hub</h1>
+            <p class="subtitle">Germany 1918–1945 | USA 1918–1941</p>
+            <button id="darkModeToggle" class="dark-mode-btn">🌙 Dark Mode</button>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="flashcards">📇 Flashcards</button>
+            <button class="tab-btn" data-tab="fillblank">✏️ Fill-in-Blank</button>
+            <button class="tab-btn" data-tab="manage">⚙️ Manage Data</button>
+        </div>
+
+                <!-- ========== TAB 1: FLASHCARDS ========== -->
+        <div id="flashcardsTab" class="tab-content active">
+            <div class="topic-selector">
+                <button class="topic-flash active" data-flash-topic="germany">🇩🇪 Germany</button>
+                <button class="topic-flash" data-flash-topic="usa">🇺🇸 USA</button>
+            </div>
+
+            <!-- Mass Import Area -->
+            <div class="mass-import">
+                <details>
+                    <summary>📥 Mass Import / Export Flashcards</summary>
+                    <textarea id="bulkImportText" rows="4" placeholder="Question / Answer&#10;What was the Weimar Constitution? / Democratic government of Germany established in 1919&#10;What was Article 48? / Allowed President to rule by emergency decree"></textarea>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button id="bulkImportBtn" class="btn-small">+ Add All Cards</button>
+                        <button id="bulkExportBtn" class="btn-small">📋 Copy Current Cards to Textbox</button>
+                        <button id="bulkReplaceBtn" class="btn-small btn-danger">🔄 Replace All with Textbox</button>
+                    </div>
+                    <p class="form-note" style="margin-top: 8px; font-size: 0.7rem;">"Copy" puts your current flashcards into the textbox to edit. "Replace" deletes all cards and replaces with textbox content.</p>
+                </details>
+            </div>
+
+            <!-- Single Add Form -->
+            <div class="single-add">
+                <input type="text" id="newQuestion" placeholder="Question">
+                <input type="text" id="newAnswer" placeholder="Answer">
+                <button id="addFlashcardBtn" class="btn-small">+ Add One Card</button>
+            </div>
+
+            <!-- Flashcard Display -->
+            <div class="flashcard-area">
+                <div class="progress">
+                    <span id="card-counter">Card 0 / 0</span>
+                    <span id="studied-badge">✓ Known: 0</span>
+                </div>
+                <div class="flashcard" id="flashcard">
+                    <div class="card-front">
+                        <p id="question-text">Loading...</p>
+                    </div>
+                    <div class="card-back">
+                        <p id="answer-text"></p>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button id="flip-btn" class="btn">🔄 Flip</button>
+                    <button id="prev-btn" class="btn">◀ Previous</button>
+                    <button id="next-btn" class="btn">Next ▶</button>
+                    <button id="shuffle-btn" class="btn">🎲 Shuffle</button>
+                    <button id="mark-known-btn" class="btn btn-known">✓ Got Right (→ Next Box)</button>
+                    <button id="mark-wrong-btn" class="btn btn-wrong">✗ Got Wrong (→ Box 1)</button>
+                </div>
+            </div>
+
+            <!-- Edit/Delete Current Card -->
+            <div class="card-actions">
+                <button id="editCardBtn" class="btn-small">✏️ Edit This Card</button>
+                <button id="deleteCardBtn" class="btn-small btn-danger">🗑 Delete This Card</button>
+            </div>
+
+            <!-- Inline Edit Modal for Flashcards -->
+            <div id="editCardModal" class="modal" style="display:none;">
+                <div class="modal-content">
+                    <span class="modal-close">&times;</span>
+                    <h3>✏️ Edit Flashcard</h3>
+                    <label>Question:</label>
+                    <input type="text" id="editCardQuestion" class="modal-input">
+                    <label>Answer:</label>
+                    <textarea id="editCardAnswer" rows="4" class="modal-input"></textarea>
+                    <div class="modal-buttons">
+                        <button id="saveCardEditBtn" class="btn">💾 Save Changes</button>
+                        <button id="cancelCardEditBtn" class="btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Daily Streak Display -->
+            <div class="streak-container">
+                <span id="streak-badge">🔥 Streak: 0 days</span>
+            </div>
+
+            <!-- Spaced Repetition System -->
+            <div class="leitner-system">
+                <h3>📊 Leitner System (Spaced Repetition)</h3>
+                <div class="boxes-container">
+                    <div class="box" data-box="1">
+                        <span class="box-number">Box 1</span>
+                        <span class="box-interval">Daily</span>
+                        <span id="box1Count" class="box-count">0</span>
+                    </div>
+                    <div class="box" data-box="2">
+                        <span class="box-number">Box 2</span>
+                        <span class="box-interval">Every 2 days</span>
+                        <span id="box2Count" class="box-count">0</span>
+                    </div>
+                    <div class="box" data-box="3">
+                        <span class="box-number">Box 3</span>
+                        <span class="box-interval">Every 4 days</span>
+                        <span id="box3Count" class="box-count">0</span>
+                    </div>
+                    <div class="box" data-box="4">
+                        <span class="box-number">Box 4</span>
+                        <span class="box-interval">Every 8 days</span>
+                        <span id="box4Count" class="box-count">0</span>
+                    </div>
+                    <div class="box" data-box="5">
+                        <span class="box-number">Box 5</span>
+                        <span class="box-interval">Every 15 days</span>
+                        <span id="box5Count" class="box-count">0</span>
+                    </div>
+                </div>
+                <div class="study-mode-selector">
+                    <label>
+                        <input type="radio" name="studyMode" value="due" checked> 📅 Due for Review Only
+                    </label>
+                    <label>
+                        <input type="radio" name="studyMode" value="all"> 📚 All Cards
+                    </label>
+                    <label>
+                        <input type="radio" name="studyMode" value="box"> 📦 Specific Box
+                    </label>
+                    <select id="boxSelector" style="display:none;">
+                        <option value="1">Box 1 (Daily)</option>
+                        <option value="2">Box 2 (Every 2 days)</option>
+                        <option value="3">Box 3 (Every 4 days)</option>
+                        <option value="4">Box 4 (Every 8 days)</option>
+                        <option value="5">Box 5 (Every 15 days)</option>
+                    </select>
+                    <button id="resetStudyModeBtn" class="btn-small">🔄 Reset All to Box 1</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== TAB 2: FILL-IN-BLANK ========== -->
+        <div id="fillblankTab" class="tab-content">
+            <div class="topic-selector">
+                <button class="topic-fill active" data-fill-topic="germany">🇩🇪 Germany</button>
+                <button class="topic-fill" data-fill-topic="usa">🇺🇸 USA</button>
+            </div>
+
+             <!-- Create New Fill-in-Blank -->
+            <div class="create-blank">
+                <h3>📝 Create Your Own Fill-in-Blank</h3>
+                <p class="hint">Use **double asterisks** around words that become blanks. Example: <strong>**proportional representation**</strong></p>
+                <input type="text" id="blankTitle" placeholder="Title (e.g., Weimar Constitution Features)">
+                <textarea id="blankText" rows="5" placeholder="Write your text here. Use **bold** for blanks.&#10;&#10;Example: One feature of the Weimar Constitution was **proportional representation** which meant seats in the **Reichstag** were allocated by percentage of votes."></textarea>
+                <button id="createBlankBtn" class="btn">+ Create Fill-in-Blank</button>
+            </div>
+
+            <!-- Mass Import Fill-in-Blanks -->
+            <div class="mass-import-blanks">
+                <details>
+                    <summary>📥 Mass Import Fill-in-Blanks (Question + Answer format)</summary>
+                    <p class="hint">Format: Title on one line, then the text. Separate each question with a blank line.</p>
+                    <textarea id="bulkBlanksText" rows="10" placeholder="Example:&#10;First Hundred Days&#10;One feature of the First Hundred Days was that it was the first **three months** of Roosevelts presidency from **March to June 1933** when **15 major laws** were passed.&#10;&#10;Another feature of the First Hundred Days was the **Emergency Banking Act** which closed all banks for **four days** and only allowed sound banks to reopen, known as the **Bank Holiday**.&#10;&#10;Achievements of the New Deal&#10;One feature of the achievements of the New Deal was that it restored **confidence in the banking system** through the **FDIC** and **Fireside Chats**.&#10;&#10;Another feature of the achievements of the New Deal was that it created **lasting reforms** including **Social Security** which **still exists today**."></textarea>
+                    <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+                        <button id="bulkBlanksImportBtn" class="btn-small">+ Add All to Current Topic</button>
+                        <button id="bulkBlanksReplaceBtn" class="btn-small btn-danger">🔄 Replace All Blanks</button>
+                        <button id="bulkBlanksExportBtn" class="btn-small">📋 Copy Current Blanks to Textbox</button>
+                    </div>
+                    <p class="form-note" style="margin-top: 8px; font-size: 0.7rem;">Format: Title line, then text with **blanks**. Blank line separates each question. "Replace" deletes all current blanks for this topic first.</p>
+                </details>
+            </div>
+
+            <!-- Random Quiz Button & Quick Find -->
+            <div class="random-quiz-section">
+                <button id="randomQuizBtn" class="btn">🎲 Random Fill-in-Blank Quiz</button>
+                <span id="randomQuizCount" style="margin-left: 10px; font-size: 0.8rem; color: var(--text-light);"></span>
+            </div>
+
+            <!-- Quick Find Search Bar -->
+            <div class="quickfind-section">
+                <input type="text" id="quickFindInput" placeholder="🔍 Quick find... type to search titles" class="quickfind-input">
+                <button id="clearQuickFindBtn" class="btn-small">✖ Clear</button>
+                <span id="quickFindCount" style="margin-left: 10px; font-size: 0.75rem; color: var(--text-light);"></span>
+            </div>
+
+            <!-- List of Existing Fill-in-Blanks -->
+            <div class="blank-list">
+                <h3>📋 Your Fill-in-Blank Quizzes</h3>
+                <div id="blankListContainer" class="blank-items">
+                    <p>Loading...</p>
+                </div>
+            </div>
+
+            <!-- Inline Edit Modal for Fill-in-Blanks -->
+            <div id="editBlankModal" class="modal" style="display:none;">
+                <div class="modal-content">
+                    <span class="modal-close">&times;</span>
+                    <h3>✏️ Edit Fill-in-Blank</h3>
+                    <label>Title:</label>
+                    <input type="text" id="editBlankTitle" class="modal-input">
+                    <label>Text (use ** for blanks):</label>
+                    <textarea id="editBlankText" rows="8" class="modal-input"></textarea>
+                    <div class="modal-buttons">
+                        <button id="saveBlankEditBtn" class="btn">💾 Save Changes</button>
+                        <button id="cancelBlankEditBtn" class="btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Quiz Area -->
+            <div id="quizArea" class="quiz-area" style="display:none;">
+                <h3 id="quizTitle"></h3>
+                <div id="quizQuestion" class="quiz-question"></div>
+                <div id="quizBlanks" class="quiz-blanks"></div>
+                <div class="quiz-buttons">
+                    <button id="checkAnswersBtn" class="btn">✅ Check Answers</button>
+                    <button id="showAnswersBtn" class="btn">🔍 Show Answers</button>
+                    <button id="closeQuizBtn" class="btn">✖ Close</button>
+                </div>
+                <div id="quizFeedback" class="quiz-feedback"></div>
+            </div>
+        </div>
+
+        <!-- ========== TAB 3: MANAGE DATA ========== -->
+        <div id="manageTab" class="tab-content">
+            <h3>💾 Database Management</h3>
+            
+            <!-- Stats Cards -->
+            <div class="stats-cards">
+                <div class="stat-card">
+                    <h4>Flashcards</h4>
+                    <p id="flashcardCount">0 total</p>
+                    <p id="knownCount">0 known</p>
+                </div>
+                <div class="stat-card">
+                    <h4>Fill-in-Blanks</h4>
+                    <p id="blankCount">0 total</p>
+                </div>
+            </div>
+
+            <!-- Mass Delete Section -->
+            <div class="mass-delete-section">
+                <h4>🗑️ Mass Delete Cards</h4>
+                <div class="mass-delete-options">
+                    <div class="delete-group">
+                        <label>By Topic:</label>
+                        <select id="massDeleteTopic">
+                            <option value="germany">Germany</option>
+                            <option value="usa">USA</option>
+                        </select>
+                        <button id="deleteByTopicBtn" class="btn-small btn-danger">Delete All Germany/USA Cards</button>
+                    </div>
+                    
+                    <div class="delete-group">
+                        <label>By Box (Spaced Repetition):</label>
+                        <select id="massDeleteBox">
+                            <option value="1">Box 1 (Daily)</option>
+                            <option value="2">Box 2 (Every 2 days)</option>
+                            <option value="3">Box 3 (Every 4 days)</option>
+                            <option value="4">Box 4 (Every 8 days)</option>
+                            <option value="5">Box 5 (Every 15 days)</option>
+                        </select>
+                        <button id="deleteByBoxBtn" class="btn-small btn-danger">Delete Cards in This Box</button>
+                    </div>
+                    
+                    <div class="delete-group">
+                        <label>By Known Status:</label>
+                        <button id="deleteKnownBtn" class="btn-small btn-danger">Delete All Known Cards</button>
+                        <button id="deleteUnknownBtn" class="btn-small btn-danger">Delete All Unknown Cards</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mass Delete Fill-in-Blanks -->
+            <div class="mass-delete-section">
+                <h4>🗑️ Mass Delete Fill-in-Blanks</h4>
+                <div class="mass-delete-options">
+                    <div class="delete-group">
+                        <label>By Topic:</label>
+                        <select id="massDeleteBlankTopic">
+                            <option value="germany">Germany</option>
+                            <option value="usa">USA</option>
+                        </select>
+                        <button id="deleteBlanksByTopicBtn" class="btn-small btn-danger">Delete All Germany/USA Blanks</button>
+                    </div>
+                    <div class="delete-group">
+                        <button id="deleteAllBlanksBtn" class="btn-small btn-danger">Delete ALL Fill-in-Blanks</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Export/Import Buttons -->
+            <div class="manage-buttons">
+                <button id="exportAllBtn" class="btn">📎 Export All Data (JSON)</button>
+                <label for="importFile" class="btn btn-import">📂 Import Data</label>
+                <input type="file" id="importFile" accept=".json" style="display:none">
+                <button id="resetAllBtn" class="btn btn-danger">⚠️ Delete ALL Data</button>
+            </div>
+            <p class="form-note">Export creates a backup file. Import restores from backup. Delete removes everything.</p>
+        </div>
+
+    <script src="script.js"></script>
+
+        <!-- Edit Modals -->
+    <div id="editBlankModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h3>✏️ Edit Fill-in-Blank</h3>
+            <label>Title:</label>
+            <input type="text" id="editBlankTitle" class="modal-input">
+            <label>Text (use ** for blanks):</label>
+            <textarea id="editBlankText" rows="8" class="modal-input"></textarea>
+            <div class="modal-buttons">
+                <button id="saveBlankEditBtn" class="btn">💾 Save Changes</button>
+                <button id="cancelBlankEditBtn" class="btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="editCardModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h3>✏️ Edit Flashcard</h3>
+            <label>Question:</label>
+            <input type="text" id="editCardQuestion" class="modal-input">
+            <label>Answer:</label>
+            <textarea id="editCardAnswer" rows="4" class="modal-input"></textarea>
+            <div class="modal-buttons">
+                <button id="saveCardEditBtn" class="btn">💾 Save Changes</button>
+                <button id="cancelCardEditBtn" class="btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</body>
+</html>
