@@ -14,7 +14,37 @@ db.version(2).stores({
         }
     }
 });
-
+// ========== USER ACCOUNTS (Simple Version) ==========
+function switchUser(username) {
+    if (!username || username.trim() === '') return;
+    
+    // Close current database
+    if (db && db.close) db.close();
+    
+    // Create user-specific database name
+    const cleanName = username.trim().replace(/[^a-zA-Z0-9]/g, '_');
+    db = new Dexie(`HistoryStudyDB_${cleanName}`);
+    
+    // Setup database (same structure as original)
+    db.version(2).stores({
+        flashcards: '++id, topic, question, answer, known, box, nextReviewDate',
+        fillblanks: '++id, topic, title, text'
+    });
+    
+    // Open and load default data if needed
+    db.open().then(async () => {
+        const flashCount = await db.flashcards.count();
+        if (flashCount === 0) {
+            await loadDefaultData(); // Your existing loadDefaultData function
+        }
+        await refreshFlashcards();
+        await loadBlankList();
+        await updateManageStats();
+    });
+    
+    // Save current user
+    localStorage.setItem('currentUser', username);
+}
 // ========== LOAD DEFAULT DATA ==========
 async function loadDefaultData() {
     const flashCount = await db.flashcards.count();
@@ -1273,4 +1303,7 @@ async function init() {
     await updateManageStats();
 }
 
+// Auto-load last user
+const lastUser = localStorage.getItem('currentUser');
+if (lastUser) switchUser(lastUser);
 init();
