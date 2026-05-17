@@ -1303,6 +1303,51 @@ async function init() {
     await updateManageStats();
 }
 
+// ========== USER SWITCHER ==========
+function switchUser(username) {
+    if (!username || username.trim() === '') return;
+    if (db && db.close) db.close();
+    const cleanName = username.trim().replace(/[^a-zA-Z0-9]/g, '_');
+    db = new Dexie(`HistoryStudyDB_${cleanName}`);
+    db.version(2).stores({
+        flashcards: '++id, topic, question, answer, known, box, nextReviewDate',
+        fillblanks: '++id, topic, title, text'
+    });
+    db.open().then(async () => {
+        const flashCount = await db.flashcards.count();
+        if (flashCount === 0) {
+            if (typeof loadDefaultData === 'function') await loadDefaultData();
+        }
+        if (typeof refreshFlashcards === 'function') await refreshFlashcards();
+        if (typeof loadBlankList === 'function') await loadBlankList();
+        if (typeof updateManageStats === 'function') await updateManageStats();
+    });
+    localStorage.setItem('currentUser', username);
+}
+
+// Load saved user
+const savedUser = localStorage.getItem('currentUser');
+if (savedUser) {
+    switchUser(savedUser);
+    const badge = document.getElementById('currentUserBadge');
+    if (badge) badge.textContent = `Current: ${savedUser}`;
+}
+
+// Setup switch button
+const switchBtn = document.getElementById('switchUserBtn');
+if (switchBtn) {
+    switchBtn.addEventListener('click', () => {
+        const input = document.getElementById('usernameInput');
+        const name = input.value.trim();
+        if (name) {
+            switchUser(name);
+            const badge = document.getElementById('currentUserBadge');
+            if (badge) badge.textContent = `Current: ${name}`;
+            input.value = '';
+        }
+    });
+}
+
 // Auto-load last user
 const lastUser = localStorage.getItem('currentUser');
 if (lastUser) switchUser(lastUser);
