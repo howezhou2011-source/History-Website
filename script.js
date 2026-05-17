@@ -1303,51 +1303,123 @@ async function init() {
     await updateManageStats();
 }
 
-// ========== USER SWITCHER ==========
+// ========== USER SWITCHER (FIXED) ==========
 function switchUser(username) {
-    if (!username || username.trim() === '') return;
-    if (db && db.close) db.close();
+    if (!username || username.trim() === '') {
+        alert('Please enter a username');
+        return;
+    }
+    
     const cleanName = username.trim().replace(/[^a-zA-Z0-9]/g, '_');
+    
+    // Close existing database if open
+    if (db && typeof db.close === 'function') {
+        db.close();
+    }
+    
+    // Create new user-specific database
     db = new Dexie(`HistoryStudyDB_${cleanName}`);
+    
     db.version(2).stores({
         flashcards: '++id, topic, question, answer, known, box, nextReviewDate',
         fillblanks: '++id, topic, title, text'
     });
+    
+    // Open database and load data
     db.open().then(async () => {
+        // Check if default data needed
         const flashCount = await db.flashcards.count();
         if (flashCount === 0) {
-            if (typeof loadDefaultData === 'function') await loadDefaultData();
+            // Add default flashcards
+            await db.flashcards.bulkAdd([
+                { topic: 'germany', question: 'What was the Weimar Constitution?', answer: 'Democratic government of Germany established in 1919', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+                { topic: 'germany', question: 'What was Article 48?', answer: 'Allowed President to rule by emergency decree', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+                { topic: 'germany', question: 'What was the Treaty of Versailles?', answer: '1919 peace treaty blaming Germany for WWI', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+                { topic: 'usa', question: 'What was Prohibition?', answer: '18th Amendment banned alcohol (1920-33)', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+                { topic: 'usa', question: 'What was the Wall Street Crash?', answer: 'Stock market collapsed October 1929', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+                { topic: 'usa', question: 'What was the New Deal?', answer: "FDR's 1930s programmes: CCC, WPA, Social Security", known: false, box: 1, nextReviewDate: new Date().toISOString() }
+            ]);
+            
+            // Add default fill-in-blanks
+            await db.fillblanks.bulkAdd([
+                { topic: 'germany', title: 'Weimar Constitution', text: 'One feature was **proportional representation** which meant seats in the **Reichstag** were allocated by percentage.' },
+                { topic: 'usa', title: 'Prohibition', text: 'Prohibition was introduced by the **18th Amendment** in **1920**, banning alcohol.' }
+            ]);
         }
-        if (typeof refreshFlashcards === 'function') await refreshFlashcards();
-        if (typeof loadBlankList === 'function') await loadBlankList();
-        if (typeof updateManageStats === 'function') await updateManageStats();
+        
+        // Refresh the UI
+        if (typeof refreshFlashcards === 'function') {
+            await refreshFlashcards();
+        } else {
+            // Manual refresh if function doesn't exist
+            if (typeof loadCards === 'function') await loadCards();
+            if (typeof updateFlashcardDisplay === 'function') updateFlashcardDisplay();
+        }
+        
+        if (typeof loadBlankList === 'function') {
+            await loadBlankList();
+        }
+        
+        if (typeof updateManageStats === 'function') {
+            await updateManageStats();
+        }
+        
+        if (typeof updateBoxCounts === 'function') {
+            await updateBoxCounts();
+        }
+        
+        // Show success
+        const badge = document.getElementById('currentUserBadge');
+        if (badge) badge.textContent = `👤 ${username}`;
+        
+        console.log(`Switched to user: ${username}`);
+    }).catch(err => {
+        console.error('Database error:', err);
+        alert('Error switching user. Please refresh the page.');
     });
+    
+    // Save to localStorage
     localStorage.setItem('currentUser', username);
 }
 
-// Load saved user
+// Load saved user on page load
 const savedUser = localStorage.getItem('currentUser');
 if (savedUser) {
-    switchUser(savedUser);
-    const badge = document.getElementById('currentUserBadge');
-    if (badge) badge.textContent = `Current: ${savedUser}`;
+    // Delay to ensure DOM is ready
+    setTimeout(() => {
+        switchUser(savedUser);
+    }, 100);
+} else {
+    // Show prompt for first-time user
+    setTimeout(() => {
+        const name = prompt('Welcome! Enter your name to start:', 'Student');
+        if (name) switchUser(name);
+    }, 500);
 }
 
-// Setup switch button
-const switchBtn = document.getElementById('switchUserBtn');
-if (switchBtn) {
-    switchBtn.addEventListener('click', () => {
-        const input = document.getElementById('usernameInput');
-        const name = input.value.trim();
-        if (name) {
-            switchUser(name);
-            const badge = document.getElementById('currentUserBadge');
-            if (badge) badge.textContent = `Current: ${name}`;
-            input.value = '';
-        }
-    });
-}
-
+// Setup switch button (waits for DOM to load)
+document.addEventListener('DOMContentLoaded', function() {
+    const switchBtn = document.getElementById('switchUserBtn');
+    if (switchBtn) {
+        switchBtn.addEventListener('click', function() {
+            const input = document.getElementById('usernameInput');
+            const name = input.value.trim();
+            if (name) {
+                switchUser(name);
+                input.value = '';
+            } else {
+                alert('Please enter a username');
+            }
+        });
+    }
+    
+    // Update badge if user exists
+    const currentUser = localStorage.getItem('currentUser');
+    if (currentUser) {
+        const badge = document.getElementById('currentUserBadge');
+        if (badge) badge.textContent = `👤 ${currentUser}`;
+    }
+});
 // Auto-load last user
 const lastUser = localStorage.getItem('currentUser');
 if (lastUser) switchUser(lastUser);
