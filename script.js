@@ -1,19 +1,54 @@
 // ========== DATABASE SETUP (IndexedDB with Dexie) ==========
-const db = new Dexie('HistoryStudyDB');
-db.version(2).stores({
-    flashcards: '++id, topic, question, answer, known, box, nextReviewDate',
-    fillblanks: '++id, topic, title, text'
-}).upgrade(async tx => {
-    const flashcards = await tx.table('flashcards').toArray();
-    for (const card of flashcards) {
-        if (card.box === undefined) {
-            await tx.table('flashcards').update(card.id, { 
-                box: card.known ? 3 : 1,
-                nextReviewDate: new Date().toISOString()
-            });
-        }
+let db = null;
+let currentUser = localStorage.getItem('studyHubUser') || null;
+
+async function initDB(username) {
+    const dbName = username ? `HistoryStudyDB_${username.replace(/[^a-zA-Z0-9]/g, '_')}` : 'HistoryStudyDB';
+    const newDB = new Dexie(dbName);
+    await newDB.version(2).stores({
+        flashcards: '++id, topic, question, answer, known, box, nextReviewDate',
+        fillblanks: '++id, topic, title, text'
+    });
+    await newDB.open();
+    return newDB;
+}
+
+async function switchUser(username) {
+    if (!username || username.trim() === '') {
+        alert('Please enter a username');
+        return;
     }
-});
+    username = username.trim();
+    
+    if (db && typeof db.close === 'function') {
+        await db.close();
+    }
+    
+    db = await initDB(username);
+    await loadDefaultData();
+    
+    localStorage.setItem('studyHubUser', username);
+    currentUser = username;
+    
+    const userBadge = document.getElementById('currentUserBadge');
+    if (userBadge) userBadge.textContent = `👤 ${username}`;
+    
+    document.getElementById('logoutBtn').style.display = 'inline-block';
+    
+    await refreshFlashcards();
+    await loadBlankList();
+    await updateManageStats();
+    await updateBoxCounts();
+    
+    console.log(`Switched to user: ${username}`);
+}
+
+function logout() {
+    if (confirm('Log out? Your data is saved.')) {
+        localStorage.removeItem('studyHubUser');
+        location.reload();
+    }
+}
 
 // ========== LOAD DEFAULT DATA ==========
 async function loadDefaultData() {
@@ -25,11 +60,21 @@ async function loadDefaultData() {
             { topic: 'germany', question: 'What was the Treaty of Versailles?', answer: '1919 peace treaty blaming Germany for WWI with £6.6bn reparations and army limited to 100,000', known: false, box: 1, nextReviewDate: new Date().toISOString() },
             { topic: 'germany', question: 'What was the Munich Putsch?', answer: 'Hitler\'s failed coup attempt in November 1923; led to Mein Kampf', known: false, box: 1, nextReviewDate: new Date().toISOString() },
             { topic: 'germany', question: 'What was Kristallnacht?', answer: 'Night of Broken Glass (1938) - Nazi attack on Jewish synagogues and shops', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'germany', question: 'What was the Enabling Act?', answer: '1933 law giving Hitler dictatorial powers for 4 years', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'germany', question: 'What was the Night of the Long Knives?', answer: '1934 purge of SA leaders including Ernst Rohm', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'germany', question: 'What was the Gestapo?', answer: 'Nazi secret police led by Heinrich Himmler', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'germany', question: 'What were the Nuremberg Laws?', answer: '1935 laws stripping Jews of citizenship and banning marriage between Jews and Germans', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'germany', question: 'What was the Hitler Youth?', answer: 'Nazi organisation for young people to indoctrinate them with Nazi ideology', known: false, box: 1, nextReviewDate: new Date().toISOString() },
             { topic: 'usa', question: 'What was Prohibition?', answer: '18th Amendment (1920-33) banned alcohol; led to speakeasies and bootleggers', known: false, box: 1, nextReviewDate: new Date().toISOString() },
             { topic: 'usa', question: 'What was the Wall Street Crash?', answer: 'Stock market collapsed October 1929; Black Tuesday lost $10bn', known: false, box: 1, nextReviewDate: new Date().toISOString() },
             { topic: 'usa', question: 'What was the New Deal?', answer: 'FDR\'s 1930s programmes: CCC, WPA, Social Security, TVA', known: false, box: 1, nextReviewDate: new Date().toISOString() },
             { topic: 'usa', question: 'What was the Dust Bowl?', answer: '1930s drought on Great Plains forcing 2.5 million to move', known: false, box: 1, nextReviewDate: new Date().toISOString() },
-            { topic: 'usa', question: 'What was the Social Security Act?', answer: '1935 law providing pensions and unemployment insurance', known: false, box: 1, nextReviewDate: new Date().toISOString() }
+            { topic: 'usa', question: 'What was the Social Security Act?', answer: '1935 law providing pensions and unemployment insurance', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'usa', question: 'What was the CCC?', answer: 'Civilian Conservation Corps employed young men in environmental projects', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'usa', question: 'What was the WPA?', answer: 'Works Progress Administration employed 8.5 million Americans', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'usa', question: 'What was the TVA?', answer: 'Tennessee Valley Authority brought electricity to 7 states', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'usa', question: 'What was the Wagner Act?', answer: '1935 law giving workers right to join unions and bargain collectively', known: false, box: 1, nextReviewDate: new Date().toISOString() },
+            { topic: 'usa', question: 'What was the court packing plan?', answer: '1937 proposal to add Supreme Court justices, rejected by Senate', known: false, box: 1, nextReviewDate: new Date().toISOString() }
         ];
         await db.flashcards.bulkAdd(defaultFlashcards);
     }
@@ -39,8 +84,11 @@ async function loadDefaultData() {
         const defaultBlanks = [
             { topic: 'germany', title: 'Weimar Constitution', text: 'One feature of the Weimar Constitution was **proportional representation** which meant seats in the **Reichstag** were allocated by percentage of votes. A second feature was **Article 48** which allowed the President to rule by emergency decree.' },
             { topic: 'germany', title: 'Treaty of Versailles', text: 'The Treaty of Versailles forced Germany to accept the **war guilt clause (Article 231)** . Germany had to pay **£6.6 billion** in reparations and its army was limited to **100,000** soldiers.' },
+            { topic: 'germany', title: 'Hitler\'s Rise to Power', text: 'Hitler became Chancellor in **January 1933**. The **Reichstag Fire** in February 1933 allowed Hitler to pass the **Enabling Act** which gave him dictatorial powers.' },
+            { topic: 'germany', title: 'Nazi Control', text: 'The **Gestapo** was the secret police. The **SS** was responsible for running the concentration camps. **Joseph Goebbels** was Minister of Propaganda.' },
             { topic: 'usa', title: 'Prohibition', text: 'Prohibition was introduced by the **18th Amendment** in **1920**. It banned alcohol, leading to illegal **speakeasies** and organised crime figures like **Al Capone** .' },
-            { topic: 'usa', title: 'New Deal Programmes', text: 'The New Deal included the **CCC** which hired young men for environmental work, the **WPA** which built roads and schools, and the **Social Security Act** which provided pensions.' }
+            { topic: 'usa', title: 'New Deal Programmes', text: 'The New Deal included the **CCC** which hired young men for environmental work, the **WPA** which built roads and schools, and the **Social Security Act** which provided pensions.' },
+            { topic: 'usa', title: 'New Deal Opposition', text: 'The **Liberty League** opposed the New Deal as socialist. **Huey Long** proposed **Share Our Wealth** and was assassinated in **1935**. The Supreme Court declared the **NRA** and **AAA** unconstitutional.' }
         ];
         await db.fillblanks.bulkAdd(defaultBlanks);
     }
@@ -70,18 +118,16 @@ function updateStreak() {
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
     
-    if (lastStudyDate === today) {
-        // Already studied today, do nothing
-    } else if (lastStudyDate === yesterdayStr) {
-        currentStreak++;
+    if (lastStudyDate !== today) {
+        if (lastStudyDate === yesterdayStr) {
+            currentStreak++;
+        } else {
+            currentStreak = 1;
+        }
         localStorage.setItem('studyStreak', currentStreak);
-    } else if (lastStudyDate !== today) {
-        currentStreak = 1;
-        localStorage.setItem('studyStreak', currentStreak);
+        localStorage.setItem('lastStudyDate', today);
+        lastStudyDate = today;
     }
-    
-    localStorage.setItem('lastStudyDate', today);
-    lastStudyDate = today;
     
     const streakBadge = document.getElementById('streak-badge');
     if (streakBadge) streakBadge.textContent = `🔥 Streak: ${currentStreak} days`;
@@ -108,7 +154,7 @@ function updateFlashcardDisplay() {
     document.getElementById('studied-badge').textContent = `✓ Known: ${knownCount}`;
 }
 
-// ========== SPACED REPETITION FUNCTIONS ==========
+// ========== SPACED REPETITION FUNCTIONS (Leitner System) ==========
 function getBoxInterval(box) {
     const intervals = { 1: 1, 2: 2, 3: 4, 4: 8, 5: 15 };
     return intervals[box] || 1;
@@ -182,12 +228,13 @@ async function loadCards(keepIndex = true) {
         case 'box':
             cards = await getCardsByBox(currentTopic, selectedBox);
             break;
+        default:
+            cards = await getDueCards(currentTopic);
     }
     
     cards.sort((a, b) => (a.box || 1) - (b.box || 1));
     
     const oldCardId = currentFlashcards[currentFlashIndex]?.id;
-    
     currentFlashcards = cards;
     
     if (keepIndex && oldCardId) {
@@ -197,13 +244,11 @@ async function loadCards(keepIndex = true) {
         } else if (currentFlashIndex >= currentFlashcards.length) {
             currentFlashIndex = Math.max(0, currentFlashcards.length - 1);
         }
-    } else if (!keepIndex) {
+    } else {
         currentFlashIndex = 0;
     }
     
-    if (currentFlashcards.length === 0) {
-        currentFlashIndex = 0;
-    }
+    if (currentFlashcards.length === 0) currentFlashIndex = 0;
     if (currentFlashIndex >= currentFlashcards.length && currentFlashcards.length > 0) {
         currentFlashIndex = currentFlashcards.length - 1;
     }
@@ -231,7 +276,6 @@ async function markAnswerAndReview(wasCorrect) {
     const currentPosition = currentFlashIndex;
     
     await updateCardAfterAnswer(currentCardId, wasCorrect);
-    
     await loadCards(true);
     
     const newIndex = currentFlashcards.findIndex(c => c.id === currentCardId);
@@ -309,143 +353,85 @@ async function deleteCurrentFlashcard() {
 async function editCurrentFlashcard() {
     if (currentFlashcards.length === 0) return;
     const card = currentFlashcards[currentFlashIndex];
-    
     currentEditingCardId = card.id;
-    const modal = document.getElementById('editCardModal');
-    if (modal) {
-        document.getElementById('editCardQuestion').value = card.question;
-        document.getElementById('editCardAnswer').value = card.answer;
-        modal.style.display = 'flex';
-    } else {
-        alert('Edit modal not found. Please check HTML.');
+    document.getElementById('editCardQuestion').value = card.question;
+    document.getElementById('editCardAnswer').value = card.answer;
+    document.getElementById('editCardModal').style.display = 'flex';
+}
+
+async function shuffleFlashcards() {
+    if (currentFlashcards.length === 0) return;
+    for (let i = currentFlashcards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [currentFlashcards[i], currentFlashcards[j]] = [currentFlashcards[j], currentFlashcards[i]];
+    }
+    currentFlashIndex = 0;
+    isFlipped = false;
+    document.getElementById('flashcard').classList.remove('flipped');
+    updateFlashcardDisplay();
+    
+    const msg = document.createElement('div');
+    msg.textContent = '🎲 Cards shuffled!';
+    msg.style.cssText = 'position:fixed; bottom:20px; right:20px; background:var(--accent); color:white; padding:6px 12px; border-radius:6px; font-size:0.8rem; z-index:1000;';
+    document.body.appendChild(msg);
+    setTimeout(() => msg.remove(), 1200);
+}
+
+async function bulkExportCurrentCards() {
+    const cards = await db.flashcards.where('topic').equals(currentTopic).toArray();
+    if (cards.length === 0) {
+        alert('No flashcards to export');
+        return;
+    }
+    let text = '';
+    for (const card of cards) {
+        text += `${card.question} / ${card.answer}\n`;
+    }
+    const textarea = document.getElementById('bulkImportText');
+    if (textarea) {
+        textarea.value = text;
+        alert(`Copied ${cards.length} flashcards to textbox.`);
     }
 }
 
-// ========== DARK MODE ==========
-const darkModeToggle = document.getElementById('darkModeToggle');
-if (localStorage.getItem('darkMode') === 'true') {
-    document.body.classList.add('dark');
-}
-if (darkModeToggle) {
-    darkModeToggle.addEventListener('click', () => {
-        document.body.classList.toggle('dark');
-        localStorage.setItem('darkMode', document.body.classList.contains('dark'));
-    });
-}
-
-// ========== TAB SWITCHING ==========
-const tabs = document.querySelectorAll('.tab-btn');
-const tabContents = document.querySelectorAll('.tab-content');
-tabs.forEach(btn => {
-    btn.addEventListener('click', () => {
-        const tabId = btn.dataset.tab;
-        tabs.forEach(b => b.classList.remove('active'));
-        tabContents.forEach(c => c.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(`${tabId}Tab`).classList.add('active');
-        if (tabId === 'flashcards') refreshFlashcards();
-        if (tabId === 'fillblank') loadBlankList();
-        if (tabId === 'manage') updateManageStats();
-    });
-});
-
-// ========== FLASHCARD EVENT LISTENERS ==========
-document.getElementById('flip-btn')?.addEventListener('click', () => {
-    document.getElementById('flashcard').classList.toggle('flipped');
-    isFlipped = !isFlipped;
-});
-
-document.getElementById('prev-btn')?.addEventListener('click', async () => {
-    if (currentFlashcards.length > 0) {
-        currentFlashIndex = (currentFlashIndex - 1 + currentFlashcards.length) % currentFlashcards.length;
-        isFlipped = false;
-        document.getElementById('flashcard').classList.remove('flipped');
-        updateFlashcardDisplay();
+async function bulkReplaceFlashcards() {
+    const textarea = document.getElementById('bulkImportText');
+    const text = textarea.value;
+    if (!text.trim()) {
+        alert('Textbox is empty. Nothing to replace.');
+        return;
     }
-});
-
-document.getElementById('next-btn')?.addEventListener('click', async () => {
-    if (currentFlashcards.length > 0) {
-        currentFlashIndex = (currentFlashIndex + 1) % currentFlashcards.length;
-        isFlipped = false;
-        document.getElementById('flashcard').classList.remove('flipped');
-        updateFlashcardDisplay();
-    }
-});
-
-document.getElementById('mark-known-btn')?.addEventListener('click', markAsCorrect);
-document.getElementById('mark-wrong-btn')?.addEventListener('click', markAsIncorrect);
-
-document.getElementById('addFlashcardBtn')?.addEventListener('click', () => {
-    const q = document.getElementById('newQuestion').value;
-    const a = document.getElementById('newAnswer').value;
-    addFlashcard(q, a);
-    document.getElementById('newQuestion').value = '';
-    document.getElementById('newAnswer').value = '';
-});
-
-document.getElementById('bulkImportBtn')?.addEventListener('click', () => {
-    const text = document.getElementById('bulkImportText').value;
-    if (text.trim()) bulkImportFlashcards(text);
-});
-
-document.getElementById('deleteCardBtn')?.addEventListener('click', deleteCurrentFlashcard);
-document.getElementById('editCardBtn')?.addEventListener('click', editCurrentFlashcard);
-
-document.querySelectorAll('.topic-flash').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.topic-flash').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentTopic = btn.dataset.flashTopic;
-        refreshFlashcards();
-    });
-});
-
-// ========== STUDY MODE CONTROLS ==========
-const radioButtons = document.querySelectorAll('input[name="studyMode"]');
-const boxSelector = document.getElementById('boxSelector');
-
-if (radioButtons.length) {
-    radioButtons.forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            if (e.target.value === 'due') {
-                studyMode = 'due';
-                if (boxSelector) boxSelector.style.display = 'none';
-            } else if (e.target.value === 'all') {
-                studyMode = 'all';
-                if (boxSelector) boxSelector.style.display = 'none';
-            } else if (e.target.value === 'box') {
-                studyMode = 'box';
-                if (boxSelector) boxSelector.style.display = 'inline-block';
-            }
-            refreshFlashcards();
-        });
-    });
-}
-
-if (boxSelector) {
-    boxSelector.addEventListener('change', (e) => {
-        selectedBox = parseInt(e.target.value);
-        if (studyMode === 'box') {
-            refreshFlashcards();
-        }
-    });
-}
-
-document.getElementById('resetStudyModeBtn')?.addEventListener('click', async () => {
-    if (confirm('Reset all cards to Box 1 (Daily review)? This will clear all progress.')) {
-        const allCards = await db.flashcards.toArray();
-        for (const card of allCards) {
-            await db.flashcards.update(card.id, {
+    const lines = text.split(/\r?\n/);
+    const newCards = [];
+    for (const line of lines) {
+        const separator = line.indexOf(' / ');
+        if (separator === -1) continue;
+        const question = line.substring(0, separator).trim();
+        const answer = line.substring(separator + 3).trim();
+        if (question && answer) {
+            newCards.push({
+                topic: currentTopic,
+                question: question,
+                answer: answer,
+                known: false,
                 box: 1,
-                nextReviewDate: new Date().toISOString(),
-                known: false
+                nextReviewDate: new Date().toISOString()
             });
         }
-        await refreshFlashcards();
-        alert('All cards reset to Box 1');
     }
-});
+    if (newCards.length === 0) {
+        alert('No valid cards found');
+        return;
+    }
+    if (confirm(`Replace ALL ${currentTopic === 'germany' ? 'Germany' : 'USA'} flashcards with ${newCards.length} new cards?\n\nThis will DELETE your current cards. Cannot undo.`)) {
+        await db.flashcards.where('topic').equals(currentTopic).delete();
+        await db.flashcards.bulkAdd(newCards);
+        await refreshFlashcards();
+        await updateBoxCounts();
+        await updateManageStats();
+        alert(`Replaced with ${newCards.length} flashcards.`);
+    }
+}
 
 // ========== FILL-IN-BLANK FUNCTIONS ==========
 function generateAcceptableAnswers(answer) {
@@ -461,6 +447,11 @@ function generateAcceptableAnswers(answer) {
         'article 48': ['article 48', 'art 48', 'article forty eight'],
         'fuhrer': ['führer', 'fuhrer', 'leader', 'hitler'],
         'gestapo': ['gestapo', 'secret police'],
+        'ss': ['ss', 'schutzstaffel'],
+        'sa': ['sa', 'stormtroopers', 'brownshirts'],
+        'enabling act': ['enabling act', 'enabling law'],
+        'nuremberg laws': ['nuremberg laws', 'nuremberg race laws'],
+        'kristallnacht': ['kristallnacht', 'night of broken glass'],
         'ccc': ['ccc', 'civilian conservation corps', 'the ccc'],
         'wpa': ['wpa', 'works progress administration', 'the wpa'],
         'tva': ['tva', 'tennessee valley authority', 'the tva'],
@@ -468,11 +459,14 @@ function generateAcceptableAnswers(answer) {
         'prohibition': ['prohibition', '18th amendment', 'prohibition era'],
         'speakeasies': ['speakeasies', 'speakeasy', 'illegal bars'],
         'bootleggers': ['bootleggers', 'bootlegger', 'illegal alcohol sellers'],
-        'dust bowl': ['dust bowl', 'the dust bowl', 'dustbowl']
+        'dust bowl': ['dust bowl', 'the dust bowl', 'dustbowl'],
+        'social security': ['social security', 'social security act'],
+        'wagner act': ['wagner act', 'national labor relations act'],
+        'court packing': ['court packing', 'judicial procedures reform bill']
     };
     
     for (const [key, values] of Object.entries(synonyms)) {
-        if (answer.includes(key) || key.includes(answer)) {
+        if (answer.toLowerCase().includes(key) || key.includes(answer.toLowerCase())) {
             values.forEach(v => variations.add(v.toLowerCase()));
         }
     }
@@ -509,7 +503,6 @@ async function loadBlankList() {
     
     const blanks = await db.fillblanks.where('topic').equals(currentFillTopic).toArray();
     
-    // Apply quick find filter
     let filteredBlanks = blanks;
     if (quickFindSearchTerm.trim() !== '') {
         const searchLower = quickFindSearchTerm.toLowerCase().trim();
@@ -519,7 +512,6 @@ async function loadBlankList() {
         );
     }
     
-    // Update count displays
     const countSpan = document.getElementById('quickFindCount');
     if (countSpan) {
         if (quickFindSearchTerm.trim() !== '') {
@@ -543,7 +535,6 @@ async function loadBlankList() {
         return;
     }
     
-    // Build HTML
     container.innerHTML = filteredBlanks.map(blank => `
         <div class="blank-item" data-id="${blank.id}">
             <span><strong>${escapeHtml(blank.title)}</strong><br><small>${escapeHtml(blank.text.substring(0, 80))}...</small></span>
@@ -555,7 +546,6 @@ async function loadBlankList() {
         </div>
     `).join('');
     
-    // Attach event listeners using onclick (faster)
     container.querySelectorAll('.take-quiz-btn').forEach(btn => {
         btn.onclick = () => takeQuiz(parseInt(btn.dataset.id));
     });
@@ -576,66 +566,6 @@ function escapeHtml(str) {
     });
 }
 
-// ========== QUICK FIND WITH DEBOUNCE ==========
-let debounceTimer;
-const quickFindInput = document.getElementById('quickFindInput');
-const clearQuickFindBtn = document.getElementById('clearQuickFindBtn');
-
-if (quickFindInput) {
-    quickFindInput.addEventListener('input', (e) => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            quickFindSearchTerm = e.target.value;
-            loadBlankList();
-        }, 300);
-    });
-}
-
-if (clearQuickFindBtn) {
-    clearQuickFindBtn.addEventListener('click', () => {
-        if (quickFindInput) {
-            quickFindInput.value = '';
-            quickFindSearchTerm = '';
-            loadBlankList();
-        }
-    });
-}
-
-// Topic switching for fill-in-blanks
-document.querySelectorAll('.topic-fill').forEach(btn => {
-    btn.addEventListener('click', async () => {
-        document.querySelectorAll('.topic-fill').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentFillTopic = btn.dataset.fillTopic;
-        
-        if (quickFindInput) quickFindInput.value = '';
-        quickFindSearchTerm = '';
-        
-        await loadBlankList();
-    });
-});
-
-document.getElementById('createBlankBtn')?.addEventListener('click', async () => {
-    const title = document.getElementById('blankTitle')?.value || '';
-    const text = document.getElementById('blankText')?.value || '';
-    if (!title.trim() || !text.trim()) {
-        alert('Please enter both title and text');
-        return;
-    }
-    if (!text.includes('**')) {
-        alert('Use **double asterisks** around words to create blanks');
-        return;
-    }
-    await db.fillblanks.add({
-        topic: currentFillTopic,
-        title: title.trim(),
-        text: text.trim()
-    });
-    loadBlankList();
-    if (document.getElementById('blankTitle')) document.getElementById('blankTitle').value = '';
-    if (document.getElementById('blankText')) document.getElementById('blankText').value = '';
-});
-
 async function takeQuiz(id) {
     const blank = await db.fillblanks.get(id);
     if (!blank) return;
@@ -652,7 +582,6 @@ async function takeQuiz(id) {
     const quizFeedback = document.getElementById('quizFeedback');
     if (quizFeedback) quizFeedback.innerHTML = '';
     
-    // Scroll to quiz
     if (quizArea) quizArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -689,14 +618,6 @@ function showAnswers() {
     });
 }
 
-document.getElementById('checkAnswersBtn')?.addEventListener('click', checkAnswers);
-document.getElementById('showAnswersBtn')?.addEventListener('click', showAnswers);
-document.getElementById('closeQuizBtn')?.addEventListener('click', () => {
-    const quizArea = document.getElementById('quizArea');
-    if (quizArea) quizArea.style.display = 'none';
-    currentBlankId = null;
-});
-
 async function deleteBlank(id) {
     if (confirm('Delete this fill-in-blank?')) {
         await db.fillblanks.delete(id);
@@ -711,125 +632,131 @@ async function deleteBlank(id) {
 async function editBlank(id) {
     const blank = await db.fillblanks.get(id);
     if (!blank) return;
-    
     currentEditingBlankId = id;
-    const modal = document.getElementById('editBlankModal');
-    if (modal) {
-        document.getElementById('editBlankTitle').value = blank.title;
-        document.getElementById('editBlankText').value = blank.text;
-        modal.style.display = 'flex';
-    } else {
-        alert('Edit modal not found. Please check HTML.');
-    }
+    document.getElementById('editBlankTitle').value = blank.title;
+    document.getElementById('editBlankText').value = blank.text;
+    document.getElementById('editBlankModal').style.display = 'flex';
 }
 
-// Modal event listeners (only if modal exists)
-const saveBlankBtn = document.getElementById('saveBlankEditBtn');
-if (saveBlankBtn) {
-    saveBlankBtn.addEventListener('click', async () => {
-        if (currentEditingBlankId === null) return;
+async function randomFillBlank() {
+    const blanks = await db.fillblanks.where('topic').equals(currentFillTopic).toArray();
+    if (blanks.length === 0) {
+        alert('No fill-in-blanks available.');
+        return;
+    }
+    const randomIndex = Math.floor(Math.random() * blanks.length);
+    const randomBlank = blanks[randomIndex];
+    currentBlankId = randomBlank.id;
+    const parsed = parseBlanks(randomBlank.text);
+    currentQuizBlanks = parsed.blanks;
+    document.getElementById('quizTitle').textContent = `🎲 RANDOM: ${randomBlank.title}`;
+    document.getElementById('quizQuestion').innerHTML = parsed.displayHtml;
+    document.getElementById('quizArea').style.display = 'block';
+    document.getElementById('quizFeedback').innerHTML = '';
+}
+
+// ========== BULK IMPORT/EXPORT FOR FILL-IN-BLANKS ==========
+function parseBulkBlanks(text, topic) {
+    const blocks = text.split(/\n\s*\n\s*\n/);
+    const results = [];
+    const errors = [];
+    
+    for (let i = 0; i < blocks.length; i++) {
+        const block = blocks[i].trim();
+        if (block === "") continue;
         
-        const newTitle = document.getElementById('editBlankTitle').value.trim();
-        const newText = document.getElementById('editBlankText').value.trim();
-        
-        if (!newTitle) {
-            alert('Title cannot be empty');
-            return;
+        const lines = block.split('\n');
+        if (lines.length < 2) {
+            errors.push(`Block ${i+1}: Need title and content`);
+            continue;
         }
-        if (!newText) {
-            alert('Text cannot be empty');
-            return;
+        
+        const title = lines[0].trim();
+        const content = lines.slice(1).join(' ').trim();
+        
+        if (!title) {
+            errors.push(`Block ${i+1}: Missing title`);
+            continue;
         }
-        if (!newText.includes('**')) {
-            alert('Use **double asterisks** around words to create blanks');
-            return;
+        if (!content) {
+            errors.push(`Block ${i+1}: Missing content`);
+            continue;
+        }
+        if (!content.includes('**')) {
+            errors.push(`Block ${i+1}: No **blanks** found`);
+            continue;
         }
         
-        await db.fillblanks.update(currentEditingBlankId, {
-            title: newTitle,
-            text: newText
-        });
-        
-        document.getElementById('editBlankModal').style.display = 'none';
-        currentEditingBlankId = null;
+        results.push({ topic: topic, title: title, text: content });
+    }
+    
+    return { results, errors };
+}
+
+async function bulkAddBlanks() {
+    const textarea = document.getElementById('bulkBlanksText');
+    const text = textarea.value;
+    if (!text.trim()) {
+        alert('Paste your fill-in-blanks first!');
+        return;
+    }
+    const { results, errors } = parseBulkBlanks(text, currentFillTopic);
+    if (results.length === 0) {
+        alert(`No valid fill-in-blanks found.\n\n${errors.join('\n')}`);
+        return;
+    }
+    await db.fillblanks.bulkAdd(results);
+    alert(`✅ Added ${results.length} fill-in-blanks`);
+    await loadBlankList();
+    textarea.value = '';
+}
+
+async function bulkReplaceBlanks() {
+    const textarea = document.getElementById('bulkBlanksText');
+    const text = textarea.value;
+    if (!text.trim()) {
+        alert('Textbox is empty');
+        return;
+    }
+    const { results, errors } = parseBulkBlanks(text, currentFillTopic);
+    if (results.length === 0) {
+        alert(`No valid fill-in-blanks found.\n\n${errors.join('\n')}`);
+        return;
+    }
+    if (confirm(`Replace ALL ${currentFillTopic === 'germany' ? 'Germany' : 'USA'} fill-in-blanks with ${results.length} new ones?`)) {
+        await db.fillblanks.where('topic').equals(currentFillTopic).delete();
+        await db.fillblanks.bulkAdd(results);
+        alert(`✅ Replaced with ${results.length} fill-in-blanks`);
         await loadBlankList();
-    });
-}
-
-const cancelBlankBtn = document.getElementById('cancelBlankEditBtn');
-if (cancelBlankBtn) {
-    cancelBlankBtn.addEventListener('click', () => {
-        document.getElementById('editBlankModal').style.display = 'none';
-        currentEditingBlankId = null;
-    });
-}
-
-const saveCardBtn = document.getElementById('saveCardEditBtn');
-if (saveCardBtn) {
-    saveCardBtn.addEventListener('click', async () => {
-        if (currentEditingCardId === null) return;
-        
-        const newQuestion = document.getElementById('editCardQuestion').value.trim();
-        const newAnswer = document.getElementById('editCardAnswer').value.trim();
-        
-        if (!newQuestion) {
-            alert('Question cannot be empty');
-            return;
-        }
-        if (!newAnswer) {
-            alert('Answer cannot be empty');
-            return;
-        }
-        
-        await db.flashcards.update(currentEditingCardId, {
-            question: newQuestion,
-            answer: newAnswer
-        });
-        
-        document.getElementById('editCardModal').style.display = 'none';
-        currentEditingCardId = null;
-        await refreshFlashcardsKeepPosition();
-    });
-}
-
-const cancelCardBtn = document.getElementById('cancelCardEditBtn');
-if (cancelCardBtn) {
-    cancelCardBtn.addEventListener('click', () => {
-        document.getElementById('editCardModal').style.display = 'none';
-        currentEditingCardId = null;
-    });
-}
-
-// Close modals on X click
-document.querySelectorAll('.modal-close').forEach(closeBtn => {
-    closeBtn.addEventListener('click', () => {
-        document.getElementById('editBlankModal').style.display = 'none';
-        document.getElementById('editCardModal').style.display = 'none';
-        currentEditingBlankId = null;
-        currentEditingCardId = null;
-    });
-});
-
-// Close modal on outside click
-window.addEventListener('click', (e) => {
-    if (e.target.classList && e.target.classList.contains('modal')) {
-        e.target.style.display = 'none';
-        currentEditingBlankId = null;
-        currentEditingCardId = null;
+        textarea.value = '';
     }
-});
+}
+
+async function bulkExportBlanks() {
+    const blanks = await db.fillblanks.where('topic').equals(currentFillTopic).toArray();
+    if (blanks.length === 0) {
+        alert('No fill-in-blanks to export');
+        return;
+    }
+    let output = '';
+    for (const blank of blanks) {
+        output += `${blank.title}\n${blank.text}\n\n`;
+    }
+    const textarea = document.getElementById('bulkBlanksText');
+    if (textarea) {
+        textarea.value = output.trim();
+        alert(`Copied ${blanks.length} fill-in-blanks to textbox.`);
+    }
+}
 
 // ========== MANAGE DATA FUNCTIONS ==========
 async function updateManageStats() {
     const flashCount = await db.flashcards.count();
     const knownCount = await db.flashcards.where('known').equals(true).count();
     const blankCount = await db.fillblanks.count();
-    const flashcardCountEl = document.getElementById('flashcardCount');
-    const knownCountEl = document.getElementById('knownCount');
-    const blankCountEl = document.getElementById('blankCount');
-    if (flashcardCountEl) flashcardCountEl.textContent = `${flashCount} total`;
-    if (knownCountEl) knownCountEl.textContent = `${knownCount} known`;
-    if (blankCountEl) blankCountEl.textContent = `${blankCount} total`;
+    document.getElementById('flashcardCount').textContent = `${flashCount} total`;
+    document.getElementById('knownCount').textContent = `${knownCount} known`;
+    document.getElementById('blankCount').textContent = `${blankCount} total`;
 }
 
 async function exportAllData() {
@@ -851,14 +778,59 @@ async function importData(file) {
     reader.onload = async function(e) {
         try {
             const data = JSON.parse(e.target.result);
-            if (data.flashcards) await db.flashcards.bulkAdd(data.flashcards);
-            if (data.fillblanks) await db.fillblanks.bulkAdd(data.fillblanks);
-            alert('Import successful!');
-            refreshFlashcards();
-            loadBlankList();
-            updateManageStats();
+            
+            let flashcardCount = data.flashcards ? data.flashcards.length : 0;
+            let blankCount = data.fillblanks ? data.fillblanks.length : 0;
+            
+            if (flashcardCount === 0 && blankCount === 0) {
+                alert('No data found in file');
+                return;
+            }
+            
+            const action = confirm(`File contains:\n- ${flashcardCount} flashcards\n- ${blankCount} fill-in-blanks\n\nClick OK to MERGE with your existing data.\nClick Cancel to REPLACE all your data.`);
+            
+            if (!action) {
+                if (confirm('WARNING: This will DELETE all your current data. Are you sure?')) {
+                    await db.flashcards.clear();
+                    await db.fillblanks.clear();
+                } else {
+                    return;
+                }
+            }
+            
+            if (data.flashcards && data.flashcards.length > 0) {
+                for (const card of data.flashcards) {
+                    await db.flashcards.add({
+                        topic: card.topic,
+                        question: card.question,
+                        answer: card.answer,
+                        known: card.known || false,
+                        box: card.box || 1,
+                        nextReviewDate: card.nextReviewDate || new Date().toISOString()
+                    });
+                }
+            }
+            
+            if (data.fillblanks && data.fillblanks.length > 0) {
+                for (const blank of data.fillblanks) {
+                    await db.fillblanks.add({
+                        topic: blank.topic,
+                        title: blank.title,
+                        text: blank.text
+                    });
+                }
+            }
+            
+            alert(`✅ Import successful!\n\nAdded: ${flashcardCount} flashcards, ${blankCount} fill-in-blanks`);
+            
+            await refreshFlashcards();
+            await loadBlankList();
+            await updateManageStats();
+            await updateBoxCounts();
+            
         } catch (err) {
-            alert('Invalid file');
+            console.error('Import error:', err);
+            alert(`Import failed: ${err.message}\n\nMake sure you're importing a valid JSON file exported from this app.`);
         }
     };
     reader.readAsText(file);
@@ -872,20 +844,10 @@ async function resetAllData() {
         refreshFlashcards();
         loadBlankList();
         updateManageStats();
+        updateBoxCounts();
         alert('All data reset to default examples');
     }
 }
-
-document.getElementById('exportAllBtn')?.addEventListener('click', exportAllData);
-document.getElementById('resetAllBtn')?.addEventListener('click', resetAllData);
-document.getElementById('importFile')?.addEventListener('change', (e) => {
-    if (e.target.files[0]) importData(e.target.files[0]);
-    e.target.value = '';
-});
-document.querySelector('.btn-import')?.addEventListener('click', () => {
-    const importFile = document.getElementById('importFile');
-    if (importFile) importFile.click();
-});
 
 // ========== MASS MANAGEMENT FUNCTIONS ==========
 async function deleteFlashcardsByTopic() {
@@ -1004,6 +966,310 @@ async function deleteAllBlanks() {
     }
 }
 
+// ========== DARK MODE ==========
+const darkModeToggle = document.getElementById('darkModeToggle');
+if (localStorage.getItem('darkMode') === 'true') {
+    document.body.classList.add('dark');
+}
+if (darkModeToggle) {
+    darkModeToggle.addEventListener('click', () => {
+        document.body.classList.toggle('dark');
+        localStorage.setItem('darkMode', document.body.classList.contains('dark'));
+    });
+}
+
+// ========== TAB SWITCHING ==========
+const tabs = document.querySelectorAll('.tab-btn');
+const tabContents = document.querySelectorAll('.tab-content');
+tabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tabId = btn.dataset.tab;
+        tabs.forEach(b => b.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`${tabId}Tab`).classList.add('active');
+        if (tabId === 'flashcards') refreshFlashcards();
+        if (tabId === 'fillblank') loadBlankList();
+        if (tabId === 'manage') updateManageStats();
+    });
+});
+
+// ========== FLASHCARD EVENT LISTENERS ==========
+document.getElementById('flip-btn')?.addEventListener('click', () => {
+    document.getElementById('flashcard').classList.toggle('flipped');
+    isFlipped = !isFlipped;
+});
+
+document.getElementById('prev-btn')?.addEventListener('click', async () => {
+    if (currentFlashcards.length > 0) {
+        currentFlashIndex = (currentFlashIndex - 1 + currentFlashcards.length) % currentFlashcards.length;
+        isFlipped = false;
+        document.getElementById('flashcard').classList.remove('flipped');
+        updateFlashcardDisplay();
+    }
+});
+
+document.getElementById('next-btn')?.addEventListener('click', async () => {
+    if (currentFlashcards.length > 0) {
+        currentFlashIndex = (currentFlashIndex + 1) % currentFlashcards.length;
+        isFlipped = false;
+        document.getElementById('flashcard').classList.remove('flipped');
+        updateFlashcardDisplay();
+    }
+});
+
+document.getElementById('mark-known-btn')?.addEventListener('click', markAsCorrect);
+document.getElementById('mark-wrong-btn')?.addEventListener('click', markAsIncorrect);
+document.getElementById('shuffle-btn')?.addEventListener('click', shuffleFlashcards);
+
+document.getElementById('addFlashcardBtn')?.addEventListener('click', () => {
+    const q = document.getElementById('newQuestion').value;
+    const a = document.getElementById('newAnswer').value;
+    addFlashcard(q, a);
+    document.getElementById('newQuestion').value = '';
+    document.getElementById('newAnswer').value = '';
+});
+
+document.getElementById('bulkImportBtn')?.addEventListener('click', () => {
+    const text = document.getElementById('bulkImportText').value;
+    if (text.trim()) bulkImportFlashcards(text);
+});
+
+document.getElementById('deleteCardBtn')?.addEventListener('click', deleteCurrentFlashcard);
+document.getElementById('editCardBtn')?.addEventListener('click', editCurrentFlashcard);
+document.getElementById('bulkExportBtn')?.addEventListener('click', bulkExportCurrentCards);
+document.getElementById('bulkReplaceBtn')?.addEventListener('click', bulkReplaceFlashcards);
+
+document.querySelectorAll('.topic-flash').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.topic-flash').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentTopic = btn.dataset.flashTopic;
+        refreshFlashcards();
+    });
+});
+
+document.querySelectorAll('.topic-fill').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        document.querySelectorAll('.topic-fill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFillTopic = btn.dataset.fillTopic;
+        if (quickFindInput) quickFindInput.value = '';
+        quickFindSearchTerm = '';
+        await loadBlankList();
+    });
+});
+
+// ========== STUDY MODE CONTROLS ==========
+const radioButtons = document.querySelectorAll('input[name="studyMode"]');
+const boxSelector = document.getElementById('boxSelector');
+
+if (radioButtons.length) {
+    radioButtons.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (e.target.value === 'due') {
+                studyMode = 'due';
+                if (boxSelector) boxSelector.style.display = 'none';
+            } else if (e.target.value === 'all') {
+                studyMode = 'all';
+                if (boxSelector) boxSelector.style.display = 'none';
+            } else if (e.target.value === 'box') {
+                studyMode = 'box';
+                if (boxSelector) boxSelector.style.display = 'inline-block';
+            }
+            refreshFlashcards();
+        });
+    });
+}
+
+if (boxSelector) {
+    boxSelector.addEventListener('change', (e) => {
+        selectedBox = parseInt(e.target.value);
+        if (studyMode === 'box') {
+            refreshFlashcards();
+        }
+    });
+}
+
+document.getElementById('resetStudyModeBtn')?.addEventListener('click', async () => {
+    if (confirm('Reset all cards to Box 1 (Daily review)? This will clear all progress.')) {
+        const allCards = await db.flashcards.toArray();
+        for (const card of allCards) {
+            await db.flashcards.update(card.id, {
+                box: 1,
+                nextReviewDate: new Date().toISOString(),
+                known: false
+            });
+        }
+        await refreshFlashcards();
+        alert('All cards reset to Box 1');
+    }
+});
+
+// ========== FILL-IN-BLANK BUTTONS ==========
+document.getElementById('createBlankBtn')?.addEventListener('click', async () => {
+    const title = document.getElementById('blankTitle')?.value || '';
+    const text = document.getElementById('blankText')?.value || '';
+    if (!title.trim() || !text.trim()) {
+        alert('Please enter both title and text');
+        return;
+    }
+    if (!text.includes('**')) {
+        alert('Use **double asterisks** around words to create blanks');
+        return;
+    }
+    await db.fillblanks.add({
+        topic: currentFillTopic,
+        title: title.trim(),
+        text: text.trim()
+    });
+    loadBlankList();
+    if (document.getElementById('blankTitle')) document.getElementById('blankTitle').value = '';
+    if (document.getElementById('blankText')) document.getElementById('blankText').value = '';
+});
+
+document.getElementById('checkAnswersBtn')?.addEventListener('click', checkAnswers);
+document.getElementById('showAnswersBtn')?.addEventListener('click', showAnswers);
+document.getElementById('closeQuizBtn')?.addEventListener('click', () => {
+    const quizArea = document.getElementById('quizArea');
+    if (quizArea) quizArea.style.display = 'none';
+    currentBlankId = null;
+});
+document.getElementById('randomQuizBtn')?.addEventListener('click', randomFillBlank);
+
+// ========== QUICK FIND WITH DEBOUNCE ==========
+let debounceTimer;
+const quickFindInput = document.getElementById('quickFindInput');
+const clearQuickFindBtn = document.getElementById('clearQuickFindBtn');
+
+if (quickFindInput) {
+    quickFindInput.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            quickFindSearchTerm = e.target.value;
+            loadBlankList();
+        }, 300);
+    });
+}
+
+if (clearQuickFindBtn) {
+    clearQuickFindBtn.addEventListener('click', () => {
+        if (quickFindInput) {
+            quickFindInput.value = '';
+            quickFindSearchTerm = '';
+            loadBlankList();
+        }
+    });
+}
+
+// ========== MODAL EVENT LISTENERS ==========
+const saveBlankBtn = document.getElementById('saveBlankEditBtn');
+if (saveBlankBtn) {
+    saveBlankBtn.addEventListener('click', async () => {
+        if (currentEditingBlankId === null) return;
+        
+        const newTitle = document.getElementById('editBlankTitle').value.trim();
+        const newText = document.getElementById('editBlankText').value.trim();
+        
+        if (!newTitle) {
+            alert('Title cannot be empty');
+            return;
+        }
+        if (!newText) {
+            alert('Text cannot be empty');
+            return;
+        }
+        if (!newText.includes('**')) {
+            alert('Use **double asterisks** around words to create blanks');
+            return;
+        }
+        
+        await db.fillblanks.update(currentEditingBlankId, {
+            title: newTitle,
+            text: newText
+        });
+        
+        document.getElementById('editBlankModal').style.display = 'none';
+        currentEditingBlankId = null;
+        await loadBlankList();
+    });
+}
+
+const cancelBlankBtn = document.getElementById('cancelBlankEditBtn');
+if (cancelBlankBtn) {
+    cancelBlankBtn.addEventListener('click', () => {
+        document.getElementById('editBlankModal').style.display = 'none';
+        currentEditingBlankId = null;
+    });
+}
+
+const saveCardBtn = document.getElementById('saveCardEditBtn');
+if (saveCardBtn) {
+    saveCardBtn.addEventListener('click', async () => {
+        if (currentEditingCardId === null) return;
+        
+        const newQuestion = document.getElementById('editCardQuestion').value.trim();
+        const newAnswer = document.getElementById('editCardAnswer').value.trim();
+        
+        if (!newQuestion) {
+            alert('Question cannot be empty');
+            return;
+        }
+        if (!newAnswer) {
+            alert('Answer cannot be empty');
+            return;
+        }
+        
+        await db.flashcards.update(currentEditingCardId, {
+            question: newQuestion,
+            answer: newAnswer
+        });
+        
+        document.getElementById('editCardModal').style.display = 'none';
+        currentEditingCardId = null;
+        await refreshFlashcardsKeepPosition();
+    });
+}
+
+const cancelCardBtn = document.getElementById('cancelCardEditBtn');
+if (cancelCardBtn) {
+    cancelCardBtn.addEventListener('click', () => {
+        document.getElementById('editCardModal').style.display = 'none';
+        currentEditingCardId = null;
+    });
+}
+
+// Close modals on X click
+document.querySelectorAll('.modal-close').forEach(closeBtn => {
+    closeBtn.addEventListener('click', () => {
+        document.getElementById('editBlankModal').style.display = 'none';
+        document.getElementById('editCardModal').style.display = 'none';
+        currentEditingBlankId = null;
+        currentEditingCardId = null;
+    });
+});
+
+// Close modal on outside click
+window.addEventListener('click', (e) => {
+    if (e.target.classList && e.target.classList.contains('modal')) {
+        e.target.style.display = 'none';
+        currentEditingBlankId = null;
+        currentEditingCardId = null;
+    }
+});
+
+// ========== MANAGE TAB BUTTONS ==========
+document.getElementById('exportAllBtn')?.addEventListener('click', exportAllData);
+document.getElementById('resetAllBtn')?.addEventListener('click', resetAllData);
+document.getElementById('importFile')?.addEventListener('change', (e) => {
+    if (e.target.files[0]) importData(e.target.files[0]);
+    e.target.value = '';
+});
+document.querySelector('.btn-import')?.addEventListener('click', () => {
+    const importFile = document.getElementById('importFile');
+    if (importFile) importFile.click();
+});
+
 document.getElementById('deleteByTopicBtn')?.addEventListener('click', deleteFlashcardsByTopic);
 document.getElementById('deleteByBoxBtn')?.addEventListener('click', deleteFlashcardsByBox);
 document.getElementById('deleteKnownBtn')?.addEventListener('click', deleteKnownFlashcards);
@@ -1011,266 +1277,35 @@ document.getElementById('deleteUnknownBtn')?.addEventListener('click', deleteUnk
 document.getElementById('deleteBlanksByTopicBtn')?.addEventListener('click', deleteBlanksByTopic);
 document.getElementById('deleteAllBlanksBtn')?.addEventListener('click', deleteAllBlanks);
 
-// ========== SHUFFLE ==========
-async function shuffleFlashcards() {
-    if (currentFlashcards.length === 0) return;
-    
-    for (let i = currentFlashcards.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [currentFlashcards[i], currentFlashcards[j]] = [currentFlashcards[j], currentFlashcards[i]];
-    }
-    
-    currentFlashIndex = 0;
-    isFlipped = false;
-    document.getElementById('flashcard').classList.remove('flipped');
-    updateFlashcardDisplay();
-    
-    const msg = document.createElement('div');
-    msg.textContent = '🎲 Cards shuffled!';
-    msg.style.cssText = 'position:fixed; bottom:20px; right:20px; background:var(--accent); color:white; padding:6px 12px; border-radius:6px; font-size:0.8rem; z-index:1000;';
-    document.body.appendChild(msg);
-    setTimeout(() => msg.remove(), 1200);
-}
-
-document.getElementById('shuffle-btn')?.addEventListener('click', shuffleFlashcards);
-
-// ========== MASS EDIT FLASHCARDS ==========
-async function bulkExportCurrentCards() {
-    const cards = await db.flashcards.where('topic').equals(currentTopic).toArray();
-    if (cards.length === 0) {
-        alert('No flashcards to export');
-        return;
-    }
-    
-    let text = '';
-    for (const card of cards) {
-        text += `${card.question} / ${card.answer}\n`;
-    }
-    
-    const textarea = document.getElementById('bulkImportText');
-    if (textarea) {
-        textarea.value = text;
-        alert(`Copied ${cards.length} flashcards to textbox.`);
-    }
-}
-
-async function bulkReplaceFlashcards() {
-    const textarea = document.getElementById('bulkImportText');
-    const text = textarea.value;
-    
-    if (!text.trim()) {
-        alert('Textbox is empty. Nothing to replace.');
-        return;
-    }
-    
-    const lines = text.split(/\r?\n/);
-    const newCards = [];
-    const errors = [];
-    
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line === "") continue;
-        
-        const separator = line.indexOf(' / ');
-        if (separator === -1) {
-            errors.push(`Line ${i+1}: No ' / ' separator found`);
-            continue;
-        }
-        
-        const question = line.substring(0, separator).trim();
-        const answer = line.substring(separator + 3).trim();
-        
-        if (question && answer) {
-            newCards.push({
-                topic: currentTopic,
-                question: question,
-                answer: answer,
-                known: false,
-                box: 1,
-                nextReviewDate: new Date().toISOString()
-            });
-        } else {
-            errors.push(`Line ${i+1}: Question or answer empty`);
-        }
-    }
-    
-    if (newCards.length === 0) {
-        alert(`No valid cards found.\n\nErrors:\n${errors.join('\n')}`);
-        return;
-    }
-    
-    const confirmMsg = `Replace ALL ${currentTopic === 'germany' ? 'Germany' : 'USA'} flashcards with ${newCards.length} new cards?\n\nThis will DELETE your current cards. Cannot undo.`;
-    
-    if (confirm(confirmMsg)) {
-        await db.flashcards.where('topic').equals(currentTopic).delete();
-        await db.flashcards.bulkAdd(newCards);
-        await refreshFlashcards();
-        await updateBoxCounts();
-        await updateManageStats();
-        alert(`Replaced with ${newCards.length} flashcards.`);
-    }
-}
-
-document.getElementById('bulkExportBtn')?.addEventListener('click', bulkExportCurrentCards);
-document.getElementById('bulkReplaceBtn')?.addEventListener('click', bulkReplaceFlashcards);
-
-// ========== MASS IMPORT FILL-IN-BLANKS ==========
-function parseBulkBlanks(text, topic) {
-    const blocks = text.split(/\n\s*\n\s*\n/);
-    const results = [];
-    const errors = [];
-    
-    for (let i = 0; i < blocks.length; i++) {
-        const block = blocks[i].trim();
-        if (block === "") continue;
-        
-        const lines = block.split('\n');
-        if (lines.length < 2) {
-            errors.push(`Block ${i+1}: Need title and content`);
-            continue;
-        }
-        
-        const title = lines[0].trim();
-        const content = lines.slice(1).join(' ').trim();
-        
-        if (!title) {
-            errors.push(`Block ${i+1}: Missing title`);
-            continue;
-        }
-        if (!content) {
-            errors.push(`Block ${i+1}: Missing content`);
-            continue;
-        }
-        if (!content.includes('**')) {
-            errors.push(`Block ${i+1}: No **blanks** found`);
-            continue;
-        }
-        
-        results.push({ topic: topic, title: title, text: content });
-    }
-    
-    return { results, errors };
-}
-
-async function bulkAddBlanks() {
-    const textarea = document.getElementById('bulkBlanksText');
-    const text = textarea.value;
-    
-    if (!text.trim()) {
-        alert('Paste your fill-in-blanks first!');
-        return;
-    }
-    
-    const { results, errors } = parseBulkBlanks(text, currentFillTopic);
-    
-    if (results.length === 0) {
-        alert(`No valid fill-in-blanks found.\n\n${errors.join('\n')}`);
-        return;
-    }
-    
-    await db.fillblanks.bulkAdd(results);
-    alert(`✅ Added ${results.length} fill-in-blanks`);
-    await loadBlankList();
-    textarea.value = '';
-}
-
-async function bulkReplaceBlanks() {
-    const textarea = document.getElementById('bulkBlanksText');
-    const text = textarea.value;
-    
-    if (!text.trim()) {
-        alert('Textbox is empty');
-        return;
-    }
-    
-    const { results, errors } = parseBulkBlanks(text, currentFillTopic);
-    
-    if (results.length === 0) {
-        alert(`No valid fill-in-blanks found.\n\n${errors.join('\n')}`);
-        return;
-    }
-    
-    if (confirm(`Replace ALL ${currentFillTopic === 'germany' ? 'Germany' : 'USA'} fill-in-blanks with ${results.length} new ones?`)) {
-        await db.fillblanks.where('topic').equals(currentFillTopic).delete();
-        await db.fillblanks.bulkAdd(results);
-        alert(`✅ Replaced with ${results.length} fill-in-blanks`);
-        await loadBlankList();
-        textarea.value = '';
-    }
-}
-
-async function bulkExportBlanks() {
-    const blanks = await db.fillblanks.where('topic').equals(currentFillTopic).toArray();
-    
-    if (blanks.length === 0) {
-        alert('No fill-in-blanks to export');
-        return;
-    }
-    
-    let output = '';
-    for (const blank of blanks) {
-        output += `${blank.title}\n${blank.text}\n\n`;
-    }
-    
-    const textarea = document.getElementById('bulkBlanksText');
-    if (textarea) {
-        textarea.value = output.trim();
-        alert(`Copied ${blanks.length} fill-in-blanks to textbox.`);
-    }
-}
-
+// ========== BULK BLANK BUTTONS ==========
 document.getElementById('bulkBlanksImportBtn')?.addEventListener('click', bulkAddBlanks);
 document.getElementById('bulkBlanksReplaceBtn')?.addEventListener('click', bulkReplaceBlanks);
 document.getElementById('bulkBlanksExportBtn')?.addEventListener('click', bulkExportBlanks);
 
-// ========== RANDOM FILL-IN-BLANK ==========
-async function randomFillBlank() {
-    const blanks = await db.fillblanks.where('topic').equals(currentFillTopic).toArray();
-    
-    if (blanks.length === 0) {
-        alert('No fill-in-blanks available.');
-        return;
-    }
-    
-    const randomIndex = Math.floor(Math.random() * blanks.length);
-    const randomBlank = blanks[randomIndex];
-    
-    const randomCountSpan = document.getElementById('randomQuizCount');
-    if (randomCountSpan) {
-        randomCountSpan.textContent = `(${blanks.length} available)`;
-        setTimeout(() => {
-            if (randomCountSpan) randomCountSpan.textContent = `(${blanks.length} available)`;
-        }, 2000);
-    }
-    
-    currentBlankId = randomBlank.id;
-    const parsed = parseBlanks(randomBlank.text);
-    currentQuizBlanks = parsed.blanks;
-    
-    const quizTitle = document.getElementById('quizTitle');
-    const quizQuestion = document.getElementById('quizQuestion');
-    const quizArea = document.getElementById('quizArea');
-    
-    if (quizTitle) quizTitle.textContent = `🎲 RANDOM: ${randomBlank.title}`;
-    if (quizQuestion) quizQuestion.innerHTML = parsed.displayHtml;
-    if (quizArea) {
-        quizArea.style.display = 'block';
-        quizArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-    
-    const quizFeedback = document.getElementById('quizFeedback');
-    if (quizFeedback) quizFeedback.innerHTML = '';
-}
-
-document.getElementById('randomQuizBtn')?.addEventListener('click', randomFillBlank);
+// ========== USER SWITCHER BUTTONS ==========
+document.getElementById('switchUserBtn')?.addEventListener('click', () => {
+    const name = document.getElementById('userNameInput').value.trim();
+    if (name) switchUser(name);
+    else alert('Enter a username');
+});
+document.getElementById('logoutBtn')?.addEventListener('click', logout);
 
 // ========== INITIALISE ==========
 async function init() {
     recordStudy();
-    await loadDefaultData();
+    if (currentUser) {
+        db = await initDB(currentUser);
+        await loadDefaultData();
+        document.getElementById('currentUserBadge').textContent = `👤 ${currentUser}`;
+        document.getElementById('logoutBtn').style.display = 'inline-block';
+    } else {
+        db = await initDB(null);
+        await loadDefaultData();
+    }
     await refreshFlashcards();
     await loadBlankList();
     await updateManageStats();
+    await updateBoxCounts();
 }
 
 init();
